@@ -7,6 +7,8 @@ Notes:
 '''
 
 
+from re import L
+
 import torch
 
 import face_recognition
@@ -36,13 +38,12 @@ def detect_faces(img: torch.Tensor) -> List[List[float]]:
     
     """
     detection_results: List[List[float]] = []
+    ##### YOUR IMPLEMENTATION STARTS HERE #####
     # A list of tuples of found face locations in css (top, right, bottom, left) order
     bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog")
     # print(bb)
     for top, right, bottom, left in bb:
         detection_results.append([float(left), float(top), float(right - left), float(bottom - top)])
-    ##### YOUR IMPLEMENTATION STARTS HERE #####
-
     return detection_results
 
 
@@ -69,7 +70,74 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
+    #https://en.wikipedia.org/wiki/K-means_clustering
+    # https://en.wikipedia.org/wiki/K-means%2B%2B
+    centroids = []
+    firstidk = torch.randint(0, len(imgs), (1,))
+    start = imgs[list(imgs.keys())[firstidk]]
+    # print(start)
+    # return []
+    centroids.append(imgs[list(imgs.keys())[firstidk]])
+    converged = False
+    while not converged:
+        clusters = [[] for _ in range(K)]
+        for i in imgs:
+            point = imgs[i]
+            closestIndex = 0
+            print(centroids[0].shape, point.shape)
+            minDistance = torch.dist(point, centroids[0])
+            for j in range(1, K):
+                d = torch.dist(point, centroids[j])
+                if d < minDistance:
+                    minDistance = d
+                    closestIndex = j
+            clusters[closestIndex].append(i)
+        newCentroids = []
+        for i in range(K):
+            newCentroid = torch.mean(torch.stack([imgs[j] for j in clusters[i]]), dim=0)
+            newCentroids.append(newCentroid)
+        if all(torch.equal(newCentroids[i], centroids[i]) for i in range(K)):
+            converged = True
+        else:
+            centroids = newCentroids
+    cluster_results = clusters  
     
+            
+    #https://en.wikipedia.org/wiki/K-means_clustering:
+    #function kmeans(k, points) is
+    # // Initialize centroids
+    # centroids ← list of k starting centroids
+    # converged ← false
+
+    # while converged == false do
+    #     // Create empty clusters
+    #     clusters ← list of k empty lists
+
+    #     // Assign each point to the nearest centroid
+    #     for i ← 0 to length(points) - 1 do
+    #         point ← points[i]
+    #         closestIndex ← 0
+    #         minDistance ← distance(point, centroids[0])
+    #         for j ← 1 to k - 1 do
+    #             d ← distance(point, centroids[j])
+    #             if d < minDistance THEN
+    #                 minDistance ← d
+    #                 closestIndex ← j
+    #         clusters[closestIndex].append(point)
+
+    #     // Recalculate centroids as the mean of each cluster
+    #     newCentroids ← empty list
+    #     for i ← 0 to k - 1 do
+    #         newCentroid ← calculateCentroid(clusters[i])
+    #         newCentroids.append(newCentroid)
+
+    #     // Check for convergence
+    #     if newCentroids == centroids THEN
+    #         converged ← true
+    #     else
+    #         centroids ← newCentroids
+
+    # return clusters
     return cluster_results
 
 
