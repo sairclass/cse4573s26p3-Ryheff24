@@ -7,8 +7,7 @@ Notes:
 '''
 
 
-from re import L
-
+from sympy import li
 import torch
 
 import face_recognition
@@ -70,28 +69,33 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
+    if imgs is None or len(imgs) == 0:
+        return cluster_results
+    embeddings = torch.zeros(len(imgs), 128) 
+    for i in range(len(imgs)):
+        img = imgs[list(imgs.keys())[i]]
+        bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog")
+        if len(bb) == 0:
+            continue
+        embedding = face_recognition.face_encodings(img.permute(1, 2, 0).contiguous().numpy(), known_face_locations=bb)[0]
+        embeddings[i] = torch.from_numpy(embedding)
+        
     #https://en.wikipedia.org/wiki/K-means_clustering
     # https://en.wikipedia.org/wiki/K-means%2B%2B
-    centroids = []
-    firstidk = torch.randint(0, len(imgs), (1,))
-    start = imgs[list(imgs.keys())[firstidk]]
-    # print(start)
-    # return []
-    centroids.append(imgs[list(imgs.keys())[firstidk]])
+    centroids = kmpp(embeddings, K)
     converged = False
     while not converged:
         clusters = [[] for _ in range(K)]
-        for i in imgs:
-            point = imgs[i]
+        for point in imgs:
             closestIndex = 0
-            print(centroids[0].shape, point.shape)
+            # print(centroids[0].shape, point.shape)
             minDistance = torch.dist(point, centroids[0])
             for j in range(1, K):
                 d = torch.dist(point, centroids[j])
                 if d < minDistance:
                     minDistance = d
                     closestIndex = j
-            clusters[closestIndex].append(i)
+            clusters[closestIndex].append(point)
         newCentroids = []
         for i in range(K):
             newCentroid = torch.mean(torch.stack([imgs[j] for j in clusters[i]]), dim=0)
@@ -138,6 +142,8 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     #         centroids ← newCentroids
 
     # return clusters
+    
+    # K++
     return cluster_results
 
 
@@ -147,3 +153,30 @@ But remember the above 2 functions are the only functions that will be called by
 '''
 
 # TODO: Your functions. (if needed)
+def kmpp(imgs, K):
+    centroids = []
+    firstidx = torch.randint(0, len(imgs), (1,))
+
+    centroids.append(imgs[list(imgs.keys())[firstidx]])
+    # converged = False
+    while len(centroids) < K:
+        # clusters = [[] for _ in range(K)]
+        d_2 = []
+        for i in imgs:
+            point = imgs[i]
+            minDist = torch.dist(point, centroids[0])
+            for j in range(1, len(centroids)):
+                d = torch.dist(point, centroids[j])
+                if d < minDist:
+                    minDist = d
+            d_2.append(minDist)
+            total = sum(d_2)
+            threshold = torch.randint(0, total.to(torch.int32), (1,))
+            cummulative = 0
+            for i in range(len(imgs)):
+                cumulative += d_2[i]
+                if cumulative >= threshold:
+                    centroids.append(imgs[list(imgs.keys())[i]])
+                    break
+
+    return centroids
