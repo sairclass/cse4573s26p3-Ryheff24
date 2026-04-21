@@ -7,7 +7,6 @@ Notes:
 '''
 
 
-from sympy import li
 import torch
 
 import face_recognition
@@ -71,9 +70,10 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     ##### YOUR IMPLEMENTATION STARTS HERE #####
     if imgs is None or len(imgs) == 0:
         return cluster_results
+    keys = list(imgs.keys())
     embeddings = torch.zeros(len(imgs), 128) 
     for i in range(len(imgs)):
-        img = imgs[list(imgs.keys())[i]]
+        img = imgs[keys[i]]
         bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog")
         if len(bb) == 0:
             continue
@@ -86,25 +86,26 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     converged = False
     while not converged:
         clusters = [[] for _ in range(K)]
-        for point in imgs:
+        for i in range(embeddings.shape[0]):
+            point = embeddings[i]
             closestIndex = 0
             # print(centroids[0].shape, point.shape)
-            minDistance = torch.dist(point, centroids[0])
+            minDistance = torch.dist(embeddings[i], centroids[0])
             for j in range(1, K):
                 d = torch.dist(point, centroids[j])
                 if d < minDistance:
                     minDistance = d
                     closestIndex = j
-            clusters[closestIndex].append(point)
+            clusters[closestIndex].append(i)
         newCentroids = []
         for i in range(K):
-            newCentroid = torch.mean(torch.stack([imgs[j] for j in clusters[i]]), dim=0)
+            newCentroid = embeddings[clusters[i]].mean(dim=0) if len(clusters[i]) > 0 else centroids[i]
             newCentroids.append(newCentroid)
-        if all(torch.equal(newCentroids[i], centroids[i]) for i in range(K)):
+        if all(torch.allclose(newCentroids[i], centroids[i]) for i in range(K)):
             converged = True
         else:
             centroids = newCentroids
-    cluster_results = clusters  
+    cluster_results = [[keys[i] for i in c] for c in clusters]
     
             
     #https://en.wikipedia.org/wiki/K-means_clustering:
@@ -153,30 +154,27 @@ But remember the above 2 functions are the only functions that will be called by
 '''
 
 # TODO: Your functions. (if needed)
-def kmpp(imgs, K):
-    centroids = []
-    firstidx = torch.randint(0, len(imgs), (1,))
-
-    centroids.append(imgs[list(imgs.keys())[firstidx]])
-    # converged = False
+def kmpp(embeddings, K):
+    centroids = [] # make this a pre-allocated tensor for kmeans to consume later
+    firstidx = torch.randint(0, embeddings.shape[0], (1,))
+    centroids.append(embeddings[firstidx])
     while len(centroids) < K:
-        # clusters = [[] for _ in range(K)]
         d_2 = []
-        for i in imgs:
-            point = imgs[i]
-            minDist = torch.dist(point, centroids[0])
+        for i in range(embeddings.shape[0]):
+            point = embeddings[i]
+            minDist = torch.dist(point, centroids[0]) # vectorize the dist 
             for j in range(1, len(centroids)):
-                d = torch.dist(point, centroids[j])
+                d = torch.dist(point, centroids[j]) ** 2
                 if d < minDist:
                     minDist = d
             d_2.append(minDist)
-            total = sum(d_2)
-            threshold = torch.randint(0, total.to(torch.int32), (1,))
-            cummulative = 0
-            for i in range(len(imgs)):
-                cumulative += d_2[i]
-                if cumulative >= threshold:
-                    centroids.append(imgs[list(imgs.keys())[i]])
-                    break
+        total = sum(d_2)
+        threshold = torch.randint(0, total.to(torch.int32), (1,))
+        cumulative = 0
+        for i in range(len(embeddings)):
+            cumulative += d_2[i]
+            if cumulative >= threshold:
+                centroids.append(embeddings[i])
+                break
 
     return centroids
