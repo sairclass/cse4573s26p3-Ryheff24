@@ -68,9 +68,23 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
-    torch.manual_seed(0)
+    torch.manual_seed(1)
     if imgs is None or len(imgs) == 0:
         return cluster_results
+
+    embeddings, keys = get_embeddings(imgs)
+    cluster_results = kmeans(embeddings, K, keys)
+
+    return cluster_results
+
+
+'''
+If your implementation requires multiple functions. Please implement all the functions you design under here.
+But remember the above 2 functions are the only functions that will be called by task1.py and task2.py.
+'''
+
+# TODO: Your functions. (if needed)
+def get_embeddings(imgs):
     keys = list(imgs.keys())
     vkeys = []
     embeddings = torch.zeros(len(imgs), 128) 
@@ -86,9 +100,10 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
         vkeys.append(keys[i])
         x += 1
     embeddings = embeddings[:x]
+    return embeddings, vkeys
+
+def kmeans(embeddings, K, keys, max_iters=100):
     #https://en.wikipedia.org/wiki/K-means_clustering
-    # https://en.wikipedia.org/wiki/K-means%2B%2B
-    # embeddings = torch.nn.functional.normalize(embeddings, dim=1)
     centroids = kmpp(embeddings, K)
     converged = False
     print(torch.cdist(centroids, centroids))
@@ -113,18 +128,12 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
             converged = True
         else:
             centroids = newCentroids
-    cluster_results = [[vkeys[i] for i in c] for c in clusters]
-    
+    cluster_results = [[keys[i] for i in c] for c in clusters]
     return cluster_results
 
-
-'''
-If your implementation requires multiple functions. Please implement all the functions you design under here.
-But remember the above 2 functions are the only functions that will be called by task1.py and task2.py.
-'''
-
-# TODO: Your functions. (if needed)
 def kmpp(embeddings, K):
+    # https://en.wikipedia.org/wiki/K-means%2B%2B
+    # embeddings = torch.nn.functional.normalize(embeddings, dim=1) if norm required, face_Rec pre norms 
     centroids = torch.empty(K, embeddings.shape[1], dtype=embeddings.dtype)
     firstidx = torch.randint(0, embeddings.shape[0], (1,)).item()
     centroids[0] = embeddings[firstidx]
@@ -135,26 +144,38 @@ def kmpp(embeddings, K):
         centroids[i] = embeddings[nextidx]
         n_d_2 = ((embeddings - centroids[i])** 2).sum(dim=1)
         c_d_2 = torch.minimum(c_d_2, n_d_2)
-    # centroids = []
-    # firstidx = torch.randint(0, embeddings.shape[0], (1,)).item()
-    # centroids.append(embeddings[firstidx])
-    # while len(centroids) < K:
-    #     d_2 = []
-    #     for i in range(embeddings.shape[0]):
-    #         point = embeddings[i]
-    #         minDist = torch.dist(point, centroids[0]) ** 2 # vectorize the dist 
-    #         for j in range(1, len(centroids)):
-    #             d = torch.dist(point, centroids[j]) ** 2
-    #             if d < minDist:
-    #                 minDist = d
-    #         d_2.append(minDist)
-    #     total = sum(d_2)
-    #     threshold = torch.rand(1).item() * total
-    #     cumulative = 0
-    #     for i in range(len(embeddings)):
-    #         cumulative += d_2[i]
-    #         if cumulative >= threshold:
-    #             centroids.append(embeddings[i])
-    #             break
-
     return centroids
+
+def nonVectkmpp(embeddings, K):
+    centroids = []
+    firstidx = torch.randint(0, embeddings.shape[0], (1,)).item()
+    centroids.append(embeddings[firstidx])
+    while len(centroids) < K:
+        d_2 = []
+        for i in range(embeddings.shape[0]):
+            point = embeddings[i]
+            minDist = torch.dist(point, centroids[0]) ** 2 # vectorize the dist 
+            for j in range(1, len(centroids)):
+                d = torch.dist(point, centroids[j]) ** 2
+                if d < minDist:
+                    minDist = d
+            d_2.append(minDist)
+        total = sum(d_2)
+        threshold = torch.rand(1).item() * total
+        cumulative = 0
+        for i in range(len(embeddings)):
+            cumulative += d_2[i]
+            if cumulative >= threshold:
+                centroids.append(embeddings[i])
+                break
+    return centroids
+
+def SHAC(embeddings, K):
+    N = embeddings.shape[0]
+    C = torch.tensor((N, N), dtype=torch.float32)
+    I = torch.zeros((N,), dtype=torch.float32)
+    print(I[1])
+    for n in range(N):
+        for i in range(N):
+            C[n][i] = torch.cdist(embeddings[n], embeddings[i])
+            
