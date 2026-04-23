@@ -68,13 +68,19 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
+    cluster_type = "SHAC" # KMEANS | SHAC
     torch.manual_seed(1)
     if imgs is None or len(imgs) == 0:
         return cluster_results
-
-    embeddings, keys = get_embeddings(imgs)
-    cluster_results = kmeans(embeddings, K, keys)
-
+    
+    if cluster_type == "KMEANS":
+        embeddings, keys = get_embeddings(imgs)
+        cluster_results = kmeans(embeddings, K, keys)
+        
+    elif cluster_type == "SHAC":
+        embeddings, keys = get_embeddings(imgs)
+        cluster_results = SHAC(embeddings, K, keys)
+        
     return cluster_results
 
 
@@ -131,6 +137,14 @@ def kmeans(embeddings, K, keys, max_iters=100):
     cluster_results = [[keys[i] for i in c] for c in clusters]
     return cluster_results
 
+def bandaidfix(embeddings, K):
+    # run kmeans++ multiple times on different seeds
+    for i in range(50):
+        pass
+        
+        
+    
+
 def kmpp(embeddings, K):
     # https://en.wikipedia.org/wiki/K-means%2B%2B
     # embeddings = torch.nn.functional.normalize(embeddings, dim=1) if norm required, face_Rec pre norms 
@@ -144,6 +158,7 @@ def kmpp(embeddings, K):
         centroids[i] = embeddings[nextidx]
         n_d_2 = ((embeddings - centroids[i])** 2).sum(dim=1)
         c_d_2 = torch.minimum(c_d_2, n_d_2)
+    
     return centroids
 
 def nonVectkmpp(embeddings, K):
@@ -170,12 +185,37 @@ def nonVectkmpp(embeddings, K):
                 break
     return centroids
 
-def SHAC(embeddings, K):
+def SHAC(embeddings, K, keys):
     N = embeddings.shape[0]
-    C = torch.tensor((N, N), dtype=torch.float32)
-    I = torch.zeros((N,), dtype=torch.float32)
-    print(I[1])
-    for n in range(N):
-        for i in range(N):
-            C[n][i] = torch.cdist(embeddings[n], embeddings[i])
+    cluster_results: List[List[str]] = [[] for _ in range(K)] # temp while algo is done
+    
+    C = torch.cdist(embeddings, embeddings) 
+    I = torch.ones((N,), dtype=torch.float32)
+
             
+    # print(C, C.dtype, C.shape)
+    A = []
+    for k in range(N - K):
+        i, m = torch.randint(0, N, (1,)).item(), torch.randint(0, N, (1,)).item() # placeholder
+        # (i,m): i != m AND I[i]=1 AND I[m]=1
+        # print(I)
+        # t = torch.where(I==1, 1, 0)
+        # print(t, t.sum())
+        
+        # return cluster_results
+        A.append((i,m))
+        for j in range(N):
+            # textbook:
+            # "choosing the cluster pair whose merge has the smallest diameter"
+            # minimuze it then for complete link
+            sim = torch.max(
+                torch.cdist(embeddings[i].unsqueeze(0), 
+                            embeddings[j].unsqueeze(0)), 
+                torch.cdist(embeddings[m].unsqueeze(0), 
+                            embeddings[j].unsqueeze(0))
+                )
+            
+            C[i, j] = sim
+            C[j, i] = sim
+        I[m] = 0
+    return cluster_results
