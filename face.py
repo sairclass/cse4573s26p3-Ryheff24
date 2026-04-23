@@ -38,12 +38,11 @@ def detect_faces(img: torch.Tensor) -> List[List[float]]:
     detection_results: List[List[float]] = []
     ##### YOUR IMPLEMENTATION STARTS HERE #####
     # A list of tuples of found face locations in css (top, right, bottom, left) order
-    bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog", number_of_times_to_upsample=2)
+    bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog", number_of_times_to_upsample=3)
     # print(bb)
     for top, right, bottom, left in bb:
         detection_results.append([float(left), float(top), float(right - left), float(bottom - top)])
     return detection_results
-
 
 
 def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
@@ -68,21 +67,15 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
-    cluster_type = "KMEANS" # KMEANS | SHAC
-    torch.manual_seed(1)
+    # torch.manual_seed(1)
     if imgs is None or len(imgs) == 0:
         return cluster_results
     
-    if cluster_type == "KMEANS":
-        embeddings, keys = get_embeddings(imgs)
-        cluster_results = kmeans(embeddings, K, keys, cluster_results)
+    iters = 100
+    runs = 100
+    cluster_results = runKmeans(imgs, K, iters, runs)
         
-    elif cluster_type == "SHAC":
-        embeddings, keys = get_embeddings(imgs)
-        cluster_results = SHAC(embeddings, K, keys)
-
     return cluster_results if len(cluster_results) > 0 else [[] for _ in range(K)]
-
 
 '''
 If your implementation requires multiple functions. Please implement all the functions you design under here.
@@ -97,7 +90,7 @@ def get_embeddings(imgs):
     x = 0
     for i in range(len(imgs)):
         img = imgs[keys[i]]
-        bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog")
+        bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog", number_of_times_to_upsample=2)
         if len(bb) == 0:
             continue
 
@@ -108,20 +101,40 @@ def get_embeddings(imgs):
     embeddings = embeddings[:x]
     return embeddings, vkeys
 
-def kmeans(embeddings, K, keys, cluster_results, max_iters=100):
-    #https://en.wikipedia.org/wiki/K-means_clustering
+def runKmeans(imgs, K, max_iters=100, runs=100):
+    ret: List[List[str]] = [[] for _ in range(K)]
+    embeddings, keys = get_embeddings(imgs)
+    # Introduction to information retrieval Textbook by Christopher D. Manning, Hinrich Schütze, and Prabhakar Raghavan:
+    # trying out multiple starting points and choosing the cluster-ing with lowest cost, section 16.4: K-means, page 364
+
+    bestdistortion = float('inf')
+    best = None
+    for _ in range(runs):
+        closest, distortion = kmeans(embeddings, K, max_iters)
+        if distortion < bestdistortion:
+            bestdistortion = distortion
+            best = closest
+    for i, c in enumerate(best):
+        ret[c].append(keys[i])
+    return ret
+
+def kmeans(embeddings, K, max_iters=100):
+    # https://en.wikipedia.org/wiki/K-means_clustering
+    
     centroids = kmpp(embeddings, K)
     prev = None
     # print(K, centroids.shape) 
     # print(torch.cdist(centroids, centroids))
     for _ in range(max_iters):
-
         dists = torch.cdist(embeddings, centroids) # just a dist matrix
-        # Machine Learning: A Probabilistic Perspective Textbook by Kevin P. Murphy
+        # Machine Learning: A Probabilistic Perspective Textbook by Kevin P. Murphy:
         # Assign each data point to its closest cluster center: z_i = argmin_k||xi−μk||^2_2;
+        # section 11.4.2.6 Vector quantization, cost funciton/distortion
         # print(dists)
         # print(dists.argmin(dim=1))
         closest = dists.argmin(dim=1)
+        mindists, _ = dists.min(dim=1) 
+        distortion = (mindists**2).sum() # equation 11.38 ML textbook, page 354
         if prev is not None and torch.equal(closest, prev):
             break
         newCentroids = torch.zeros(K, embeddings.shape[1], dtype=embeddings.dtype)
@@ -132,47 +145,11 @@ def kmeans(embeddings, K, keys, cluster_results, max_iters=100):
         if none.any():
             newCentroids[none] = centroids[none]
         centroids = newCentroids
-    
         prev = closest
-        
-        
-        # NORMAL KMEANS
-        # print(F"K: {K},\nCentroids shape: {centroids.shape},\nDists: {dists},\nDists shape: {dists.shape},\nEmbeddings shape: {embeddings.shape}, \nClosest Values: {closest} \nClosest shape: {closest.shape}")
-        # the values inside of closest can be used as a row index inside of dists 
-        # print(closest, torch.max(closest))
-        # https://docs.pytorch.org/docs/stable/generated/torch.Tensor.scatter_add_.html#torch.Tensor.scatter_add_
-        # clusters = [[] for _ in range(K)]
-        # return []
-        # for i in range(embeddings.shape[0]):
-        #     point = embeddings[i]
-        #     closestIndex = 0
-        #     # print(centroids[0].shape, point.shape)
-        #     minDistance = torch.dist(embeddings[i], centroids[0]) # 
-        #     for j in range(1, K):
-        #         d = torch.dist(point, centroids[j])
-        #         if d < minDistance:
-        #             minDistance = d
-        #             closestIndex = j
-        #     clusters[closestIndex].append(i)
-        # newCentroids = torch.mean
-        
-        # # centroid update 
-        # for i in range(K):
-        #     newCentroid = embeddings[clusters[i]].mean(dim=0) if len(clusters[i]) > 0 else centroids[i]
-        #     newCentroids[i] = newCentroid
-        # if all(torch.allclose(newCentroids[i], centroids[i]) for i in range(K)):
-        #     converged = True
-        # else:
-        #     centroids = newCentroids
-    for i, c in enumerate(closest):
-        cluster_results[c].append(keys[i])
-    return cluster_results
-
-def bandaidfix(embeddings, K):
-    # run kmeans++ multiple times on different seeds
-    for i in range(50):
-        pass
-        
+        # # print(F"K: {K},\nCentroids shape: {centroids.shape},\nDists: {dists},\nDists shape: {dists.shape},\nEmbeddings shape: {embeddings.shape}, \nClosest Values: {closest} \nClosest shape: {closest.shape}")
+        # # the values inside of closest can be used as a row index inside of dists 
+        # # https://docs.pytorch.org/docs/stable/generated/torch.Tensor.scatter_add_.html#torch.Tensor.scatter_add_
+    return closest, distortion
 
 def kmpp(embeddings, K):
     # https://en.wikipedia.org/wiki/K-means%2B%2B
@@ -189,62 +166,3 @@ def kmpp(embeddings, K):
         c_d_2 = torch.minimum(c_d_2, n_d_2)
     
     return centroids
-
-def nonVectkmpp(embeddings, K):
-    centroids = []
-    firstidx = torch.randint(0, embeddings.shape[0], (1,)).item()
-    centroids.append(embeddings[firstidx])
-    while len(centroids) < K:
-        d_2 = []
-        for i in range(embeddings.shape[0]):
-            point = embeddings[i]
-            minDist = torch.dist(point, centroids[0]) ** 2 # vectorize the dist 
-            for j in range(1, len(centroids)):
-                d = torch.dist(point, centroids[j]) ** 2
-                if d < minDist:
-                    minDist = d
-            d_2.append(minDist)
-        total = sum(d_2)
-        threshold = torch.rand(1).item() * total
-        cumulative = 0
-        for i in range(len(embeddings)):
-            cumulative += d_2[i]
-            if cumulative >= threshold:
-                centroids.append(embeddings[i])
-                break
-    return centroids
-
-def SHAC(embeddings, K, keys):
-    N = embeddings.shape[0]
-    cluster_results: List[List[str]] = [[] for _ in range(K)] # temp while algo is done
-    
-    C = torch.cdist(embeddings, embeddings) 
-    I = torch.ones((N,), dtype=torch.float32)
-
-            
-    # print(C, C.dtype, C.shape)
-    A = []
-    for k in range(N - K):
-        i, m = torch.randint(0, N, (1,)).item(), torch.randint(0, N, (1,)).item() # placeholder
-        # (i,m): i != m AND I[i]=1 AND I[m]=1
-        # print(I)
-        # t = torch.where(I==1, 1, 0)
-        # print(t, t.sum())
-        
-        # return cluster_results
-        A.append((i,m))
-        for j in range(N):
-            # textbook:
-            # "choosing the cluster pair whose merge has the smallest diameter"
-            # minimuze it then for complete link
-            sim = torch.max(
-                torch.cdist(embeddings[i].unsqueeze(0), 
-                            embeddings[j].unsqueeze(0)), 
-                torch.cdist(embeddings[m].unsqueeze(0), 
-                            embeddings[j].unsqueeze(0))
-                )
-            
-            C[i, j] = sim
-            C[j, i] = sim
-        I[m] = 0
-    return cluster_results
