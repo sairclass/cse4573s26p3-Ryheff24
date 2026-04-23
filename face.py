@@ -38,7 +38,7 @@ def detect_faces(img: torch.Tensor) -> List[List[float]]:
     detection_results: List[List[float]] = []
     ##### YOUR IMPLEMENTATION STARTS HERE #####
     # A list of tuples of found face locations in css (top, right, bottom, left) order
-    bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog", number_of_times_to_upsample=3)
+    bb = face_recognition.face_locations(img.permute(1, 2, 0).contiguous().numpy(), model="hog", number_of_times_to_upsample=2)
     # print(bb)
     for top, right, bottom, left in bb:
         detection_results.append([float(left), float(top), float(right - left), float(bottom - top)])
