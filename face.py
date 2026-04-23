@@ -68,20 +68,20 @@ def cluster_faces(imgs: Dict[str, torch.Tensor], K: int) -> List[List[str]]:
     cluster_results: List[List[str]] = [[] for _ in range(K)] # Please make sure your output follows this data format.
         
     ##### YOUR IMPLEMENTATION STARTS HERE #####
-    cluster_type = "SHAC" # KMEANS | SHAC
+    cluster_type = "KMEANS" # KMEANS | SHAC
     torch.manual_seed(1)
     if imgs is None or len(imgs) == 0:
         return cluster_results
     
     if cluster_type == "KMEANS":
         embeddings, keys = get_embeddings(imgs)
-        cluster_results = kmeans(embeddings, K, keys)
+        cluster_results = kmeans(embeddings, K, keys, cluster_results)
         
     elif cluster_type == "SHAC":
         embeddings, keys = get_embeddings(imgs)
         cluster_results = SHAC(embeddings, K, keys)
-        
-    return cluster_results
+
+    return cluster_results if len(cluster_results) > 0 else [[] for _ in range(K)]
 
 
 '''
@@ -108,33 +108,64 @@ def get_embeddings(imgs):
     embeddings = embeddings[:x]
     return embeddings, vkeys
 
-def kmeans(embeddings, K, keys, max_iters=100):
+def kmeans(embeddings, K, keys, cluster_results, max_iters=100):
     #https://en.wikipedia.org/wiki/K-means_clustering
     centroids = kmpp(embeddings, K)
-    converged = False
-    print(torch.cdist(centroids, centroids))
-    while not converged:
-        clusters = [[] for _ in range(K)]
-        for i in range(embeddings.shape[0]):
-            point = embeddings[i]
-            closestIndex = 0
-            # print(centroids[0].shape, point.shape)
-            minDistance = torch.dist(embeddings[i], centroids[0])
-            for j in range(1, K):
-                d = torch.dist(point, centroids[j])
-                if d < minDistance:
-                    minDistance = d
-                    closestIndex = j
-            clusters[closestIndex].append(i)
-        newCentroids = torch.empty_like(centroids)
-        for i in range(K):
-            newCentroid = embeddings[clusters[i]].mean(dim=0) if len(clusters[i]) > 0 else centroids[i]
-            newCentroids[i] = newCentroid
-        if all(torch.allclose(newCentroids[i], centroids[i]) for i in range(K)):
-            converged = True
-        else:
-            centroids = newCentroids
-    cluster_results = [[keys[i] for i in c] for c in clusters]
+    prev = None
+    # print(K, centroids.shape) 
+    # print(torch.cdist(centroids, centroids))
+    for _ in range(max_iters):
+
+        dists = torch.cdist(embeddings, centroids) # just a dist matrix
+        # Machine Learning: A Probabilistic Perspective Textbook by Kevin P. Murphy
+        # Assign each data point to its closest cluster center: z_i = argmin_k||xi−μk||^2_2;
+        # print(dists)
+        # print(dists.argmin(dim=1))
+        closest = dists.argmin(dim=1)
+        if prev is not None and torch.equal(closest, prev):
+            break
+        newCentroids = torch.zeros(K, embeddings.shape[1], dtype=embeddings.dtype)
+        idx = closest.unsqueeze(1).expand_as(embeddings)
+        newCentroids.scatter_reduce_(0, idx, embeddings, "mean", include_self=False)
+        counts = torch.bincount(closest, minlength=K)
+        none = counts == 0
+        if none.any():
+            newCentroids[none] = centroids[none]
+        centroids = newCentroids
+    
+        prev = closest
+        
+        
+        # NORMAL KMEANS
+        # print(F"K: {K},\nCentroids shape: {centroids.shape},\nDists: {dists},\nDists shape: {dists.shape},\nEmbeddings shape: {embeddings.shape}, \nClosest Values: {closest} \nClosest shape: {closest.shape}")
+        # the values inside of closest can be used as a row index inside of dists 
+        # print(closest, torch.max(closest))
+        # https://docs.pytorch.org/docs/stable/generated/torch.Tensor.scatter_add_.html#torch.Tensor.scatter_add_
+        # clusters = [[] for _ in range(K)]
+        # return []
+        # for i in range(embeddings.shape[0]):
+        #     point = embeddings[i]
+        #     closestIndex = 0
+        #     # print(centroids[0].shape, point.shape)
+        #     minDistance = torch.dist(embeddings[i], centroids[0]) # 
+        #     for j in range(1, K):
+        #         d = torch.dist(point, centroids[j])
+        #         if d < minDistance:
+        #             minDistance = d
+        #             closestIndex = j
+        #     clusters[closestIndex].append(i)
+        # newCentroids = torch.mean
+        
+        # # centroid update 
+        # for i in range(K):
+        #     newCentroid = embeddings[clusters[i]].mean(dim=0) if len(clusters[i]) > 0 else centroids[i]
+        #     newCentroids[i] = newCentroid
+        # if all(torch.allclose(newCentroids[i], centroids[i]) for i in range(K)):
+        #     converged = True
+        # else:
+        #     centroids = newCentroids
+    for i, c in enumerate(closest):
+        cluster_results[c].append(keys[i])
     return cluster_results
 
 def bandaidfix(embeddings, K):
@@ -142,8 +173,6 @@ def bandaidfix(embeddings, K):
     for i in range(50):
         pass
         
-        
-    
 
 def kmpp(embeddings, K):
     # https://en.wikipedia.org/wiki/K-means%2B%2B
